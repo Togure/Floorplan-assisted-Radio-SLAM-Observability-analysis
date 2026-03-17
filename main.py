@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import shutil
 import sys
 import textwrap
 import time as _time
@@ -102,6 +103,8 @@ def _parse_args() -> argparse.Namespace:
                      help="Skip saving figures to disk.")
     out.add_argument("--show", action="store_true",
                      help="Display figures interactively after saving.")
+    out.add_argument("--no-clean", action="store_true",
+                     help="Do NOT clear output dir before writing (default: clean to overwrite).")
 
     return parser.parse_args()
 
@@ -126,9 +129,12 @@ def _build_config(args: argparse.Namespace, case_id: int) -> ExperimentConfig:
 # Output directory
 # ---------------------------------------------------------------------------
 
-def _make_output_dir(root: str, cfg: ExperimentConfig) -> Path:
+def _make_output_dir(root: str, cfg: ExperimentConfig, clean: bool = True) -> Path:
+    """Create output directory for this case.  If clean=True, remove existing dir first."""
     slug = _PRIOR_LABELS[cfg.case_id].lower().replace(" ", "_").replace("+", "and")
     out  = Path(root) / f"case_{cfg.case_id}_{slug}"
+    if clean and out.exists():
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -315,7 +321,7 @@ def _run_case(args: argparse.Namespace, case_id: int) -> None:
 
     out_dir: Path | None = None
     if not args.no_save:
-        out_dir = _make_output_dir(args.output_dir, cfg)
+        out_dir = _make_output_dir(args.output_dir, cfg, clean=not args.no_clean)
         print(f"Saving outputs to: {out_dir}/")
         _save_summary_txt(cfg, results, out_dir)
         _save_npz(results, out_dir)

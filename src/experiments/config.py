@@ -42,7 +42,7 @@ class ExperimentConfig:
     n_steps: int = 100
     T: float = 1.0
     N: int = 4   # one VA per wall (rectangular room has 4 walls)
-    room_width: float = 20.0
+    room_width: float = 40.0
     room_height: float = 15.0
     q_x: float = 0.05          # m²/s³ — velocity random-walk (inflated for
     q_y: float = 0.05          #          Lissajous/random-walk model mismatch)

@@ -62,110 +62,108 @@ def apply_publication_style() -> None:
 # ---------------------------------------------------------------------------
 # Figure 1 — Error trajectories ± 2σ  (paper Fig. 1 style)
 # ---------------------------------------------------------------------------
-
 def figure1_error_trajectories(results: dict, c_light: float = _C_LIGHT) -> plt.Figure:
-    """Publication Figure 1: estimation error ± 2σ for four key state variables.
-
-    Layout: 4 rows × 2 columns
-      Col 0 — Mapless EKF        Col 1 — Map-aided EKF
-      Row 0 — receiver x  [m]
-      Row 1 — receiver y  [m]
-      Row 2 — anchor x    [m]
-      Row 3 — relative clock bias  c·(δtr − δta)  [m equiv.]
-
-    For each panel both the filter-predicted ±2σ (from P diagonal, solid fill)
-    and the empirical ±2σ (from MC spread, dashed boundary) are drawn so that
-    filter consistency can be judged visually.
+    """
+    修正版：包含所有坐标轴 Label，并集成方案 A 的相对时钟统计。
     """
     apply_publication_style()
     cfg  = results["cfg"]
     time = results["time"]
+    N    = cfg.N
 
     ml = results["mapless"]
     ma = results["map_aided"]
 
-    # (n_steps, n_runs, dim) error arrays
     err_ml = ml["errors"]
     err_ma = ma["errors"]
+    sig_ml = ml["sigmas"]
+    sig_ma = ma["sigmas"]
+    emp_ml = np.std(err_ml, axis=1)
+    emp_ma = np.std(err_ma, axis=1)
 
-    # Filter ±2σ  (sqrt of mean P-diagonal over runs)
-    sig_ml = ml["sigmas"]    # (n_steps, dim_ml)
-    sig_ma = ma["sigmas"]    # (n_steps, 10)
+    dim_ml = err_ml.shape[2]
+    dim_ma = 10
 
-    # Empirical ±2σ  (std of error over runs)
-    emp_ml = np.std(err_ml, axis=1)   # (n_steps, dim_ml)
-    emp_ma = np.std(err_ma, axis=1)   # (n_steps, 10)
-
-    # Relative clock bias error in metres.
-    # States b_r (idx 4) and b_a (idx 8) are already stored in metres
-    # (b = c·δt was applied at simulation time), so NO further multiplication.
-    def _rel_clk(err, sig, emp):
-        err_c = err[:, :, 4] - err[:, :, 8]                  # (T, n_runs) [m]
-        sig_c = np.sqrt(sig[:, 4]**2 + sig[:, 8]**2)         # (T,)        [m]
-        emp_c = np.sqrt(emp[:, 4]**2 + emp[:, 8]**2)         # (T,)        [m]
+    # --- 方案 A 内部函数：处理相对时钟 ---
+    def _get_rel_clk_data(res_dict):
+        err = res_dict["errors"]
+        # 经验误差：先减再求标准差 (抵消共模发散)
+        err_c = err[:, :, 4] - err[:, :, 8]
+        emp_c = np.std(err_c, axis=1)
+        # 理论边界：读取 runner.py 中记录的包含协方差项的 sigma
+        # 如果 runner 还没改，这里会 fallback 到绝对相加(视觉上会很大)
+        sig_c = res_dict.get("sigmas_rel", np.sqrt(res_dict["cov_diags"][:,:,4].mean(axis=1)))
         return err_c, sig_c, emp_c
 
-    rows = [
-        ("x_r position error [m]",          0,  err_ml, sig_ml, emp_ml,
-                                             0,  err_ma, sig_ma, emp_ma),
-        ("y_r position error [m]",          1,  err_ml, sig_ml, emp_ml,
-                                             1,  err_ma, sig_ma, emp_ma),
-        ("x_a anchor position error [m]",   6,  err_ml, sig_ml, emp_ml,
-                                             6,  err_ma, sig_ma, emp_ma),
+    # 定义所有行的标签
+    _CORE_LABELS = [
+        (r"$\tilde{x}_r$ [m]", "x_r pos"),
+        (r"$\tilde{y}_r$ [m]", "y_r pos"),
+        (r"$\dot{\tilde{x}}_r$ [m/s]", "vx_r"),
+        (r"$\dot{\tilde{y}}_r$ [m/s]", "vy_r"),
+        (r"Rel. $c\delta\tilde{t}$ [m]", "relative clock"), # 第 4 行改为相对
+        (r"$\dot{b}_r$ [m/s]", "bd_r drift"),
+        (r"$\tilde{x}_a$ [m]", "x_a pos"),
+        (r"$\tilde{y}_a$ [m]", "y_a pos"),
+        (r"Excluded", "placeholder"),                   # 第 8 行原为 b_a，现排除
+        (r"$\dot{b}_a$ [m/s]", "bd_a drift"),
     ]
+    
+    n_rows = dim_ml
+    fig, axes = plt.subplots(n_rows, 2, figsize=(12, 1.8 * n_rows), sharex=True)
 
-    fig, axes = plt.subplots(4, 2, figsize=(12, 11), sharex=True)
-
-    def _draw(ax, time, errors, filter_sig, emp_sig, color, label):
+    def _draw_sub(ax, t, errors, filter_sig, emp_sig, color, label):
         mean_e = np.mean(errors, axis=1)
-        ax.plot(time, mean_e,
-                color=color, lw=1.6, label=f"{label} mean error", zorder=3)
-        ax.fill_between(time, -2*filter_sig, 2*filter_sig,
-                         color=color, alpha=0.18, label="±2σ filter", zorder=2)
-        ax.plot(time,  2*emp_sig, color=color, lw=0.9, ls="--", label="±2σ empirical")
-        ax.plot(time, -2*emp_sig, color=color, lw=0.9, ls="--")
-        ax.axhline(0, color=_GRAY, lw=0.8, ls=":")
-        ax.set_ylabel(ax.get_ylabel() or "")
+        ax.plot(t, mean_e, color=color, lw=1.4, label=f"{label} mean", zorder=3)
+        ax.fill_between(t, -2 * filter_sig, 2 * filter_sig,
+                        color=color, alpha=0.18, label=r"±2$\sigma$ filter", zorder=2)
+        ax.plot(t,  2 * emp_sig, color=color, lw=0.8, ls="--", label=r"±2$\sigma$ emp.")
+        ax.plot(t, -2 * emp_sig, color=color, lw=0.8, ls="--")
+        ax.axhline(0, color=_GRAY, lw=0.6, ls=":")
 
-    for row_idx, (ylabel, idx_ml, e_ml, s_ml, emp_ml_,
-                           idx_ma, e_ma, s_ma, emp_ma_) in enumerate(rows):
+    for row_idx in range(n_rows):
         ax_ml, ax_ma = axes[row_idx, 0], axes[row_idx, 1]
-        _draw(ax_ml, time, e_ml[:, :, idx_ml], s_ml[:, idx_ml], emp_ml_[:, idx_ml],
-              _BLUE, "Mapless")
-        _draw(ax_ma, time, e_ma[:, :, idx_ma], s_ma[:, idx_ma], emp_ma_[:, idx_ma],
-              _ORANGE, "Map-aided")
-        ax_ml.set_ylabel(ylabel)
-        ax_ma.set_ylabel(ylabel)
+        
+        # 获取标签
+        if row_idx < 10:
+            ylabel = _CORE_LABELS[row_idx][0]
+        else:
+            va_idx = (row_idx - 10) // 2 + 1
+            coord = "x" if row_idx % 2 == 0 else "y"
+            ylabel = rf"VA{va_idx} $\tilde{{{coord}}}$ [m]"
+
+        # --- 特殊行处理 (方案 A) ---
+        if row_idx == 4: # 第 5 行：展示相对时钟
+            e_c_ml, s_c_ml, emp_c_ml = _get_rel_clk_data(ml)
+            e_c_ma, s_c_ma, emp_c_ma = _get_rel_clk_data(ma)
+            _draw_sub(ax_ml, time, e_c_ml, s_c_ml, emp_c_ml, _BLUE, "Mapless")
+            _draw_sub(ax_ma, time, e_c_ma, s_c_ma, emp_c_ma, _ORANGE, "Map-aided")
+        elif row_idx == 8: # 隐藏原有的绝对时钟 b_a 行
+            ax_ml.set_visible(False)
+            ax_ma.set_visible(False)
+            continue
+        else:
+            # 普通行绘制
+            _draw_sub(ax_ml, time, err_ml[:, :, row_idx], sig_ml[:, row_idx], emp_ml[:, row_idx], _BLUE, "Mapless")
+            if row_idx < dim_ma:
+                _draw_sub(ax_ma, time, err_ma[:, :, row_idx], sig_ma[:, row_idx], emp_ma[:, row_idx], _ORANGE, "Map-aided")
+
+        # --- 显式设置 Y 轴标签 ---
+        ax_ml.set_ylabel(ylabel, fontsize=10)
+        ax_ma.set_ylabel(ylabel, fontsize=10)
+
+        # 设置标题和图例 (仅第一行)
         if row_idx == 0:
-            ax_ml.set_title(
-                "Mapless EKF\n"
-                r"(global translation $\in$ null space → absolute pos. unobservable)",
-                fontsize=10,
-            )
-            ax_ma.set_title("Map-Aided EKF\n(floorplan breaks translation ambiguity)",
-                            fontsize=10)
-            ax_ml.legend(fontsize=8, loc="upper right")
-            ax_ma.legend(fontsize=8, loc="upper right")
+            ax_ml.set_title("Mapless EKF", fontsize=11)
+            ax_ma.set_title("Map-Aided EKF", fontsize=11)
+            ax_ml.legend(fontsize=7, loc="upper right")
+            ax_ma.legend(fontsize=7, loc="upper right")
 
-    # Row 3 — relative clock bias in metres
-    ax_ml3, ax_ma3 = axes[3, 0], axes[3, 1]
-    e_c_ml, s_c_ml, emp_c_ml = _rel_clk(err_ml, sig_ml, emp_ml)
-    e_c_ma, s_c_ma, emp_c_ma = _rel_clk(err_ma, sig_ma, emp_ma)
-    _draw(ax_ml3, time, e_c_ml, s_c_ml, emp_c_ml, _BLUE, "Mapless")
-    _draw(ax_ma3, time, e_c_ma, s_c_ma, emp_c_ma, _ORANGE, "Map-aided")
-    ylabel_clk = r"Rel. clock bias $(b_r - b_a)$ error [m]"
-    ax_ml3.set_ylabel(ylabel_clk)
-    ax_ma3.set_ylabel(ylabel_clk)
-
+    # --- 显式设置 X 轴标签 (仅最底部可见行) ---
     for ax in axes[-1, :]:
-        ax.set_xlabel("Time [s]")
+        ax.set_xlabel("Time [s]", fontsize=10)
 
-    case_label = _case_label(cfg)
-    fig.suptitle(
-        f"Fig. 1 — Estimation Error ± 2σ  |  {case_label}  "
-        f"({cfg.n_runs} MC runs, N={cfg.N})",
-        fontsize=13, y=1.01,
-    )
+    fig.suptitle(f"Fig. 1 — Estimation Error ± 2σ | {cfg.case_id} (N={cfg.N})", fontsize=13, y=1.0)
     fig.tight_layout()
     return fig
 
