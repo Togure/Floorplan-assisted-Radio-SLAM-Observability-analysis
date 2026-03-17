@@ -167,7 +167,107 @@ def figure1_error_trajectories(results: dict, c_light: float = _C_LIGHT) -> plt.
     fig.tight_layout()
     return fig
 
+def figure1_single_run_error(results: dict, run_idx: int = 0, c_light: float = _C_LIGHT) -> plt.Figure:
+    """
+    绘制单次蒙特卡洛运行（默认第 0 次）的真实估计误差与滤波器的理论边界（±2σ）。
+    布局与 figure1_error_trajectories 完全一致，但去除了均值和经验虚线。
+    """
+    apply_publication_style()
+    cfg  = results["cfg"]
+    time = results["time"]
+    N    = cfg.N
 
+    ml = results["mapless"]
+    ma = results["map_aided"]
+
+    # --- 核心修改：只提取单次运行 (run_idx) 的数据 ---
+    err_ml_single = ml["errors"][:, run_idx, :]
+    err_ma_single = ma["errors"][:, run_idx, :]
+    
+    # 提取单次运行中，滤波器自己计算的理论标准差 (直接读对角线)
+    sig_ml_single = np.sqrt(ml["cov_diags"][:, run_idx, :])
+    sig_ma_single = np.sqrt(ma["cov_diags"][:, run_idx, :])
+
+    dim_ml = err_ml_single.shape[1]
+    dim_ma = 10
+
+    # --- 方案 A 内部函数：处理相对时钟 (针对单次运行) ---
+    def _get_rel_clk_single(res_dict, r_idx):
+        # 1. 真实相对误差：直接相减 (b_r - b_a)
+        err_c = res_dict["errors"][:, r_idx, 4] - res_dict["errors"][:, r_idx, 8]
+        # 2. 理论相对边界：读取 runner 中记录的包含了协方差交叉项的方差，再开根号
+        sig_c = np.sqrt(res_dict["rel_clk_var"][:, r_idx])
+        return err_c, sig_c
+
+    # 定义所有行的标签
+    _CORE_LABELS = [
+        (r"$\tilde{x}_r$ [m]", "x_r pos"),
+        (r"$\tilde{y}_r$ [m]", "y_r pos"),
+        (r"$\dot{\tilde{x}}_r$ [m/s]", "vx_r"),
+        (r"$\dot{\tilde{y}}_r$ [m/s]", "vy_r"),
+        (r"Rel. $c\delta\tilde{t}$ [m]", "relative clock"), # 第 5 行：相对时钟
+        (r"$\dot{b}_r$ [m/s]", "bd_r drift"),
+        (r"$\tilde{x}_a$ [m]", "x_a pos"),
+        (r"$\tilde{y}_a$ [m]", "y_a pos"),
+        (r"Excluded", "placeholder"),                   # 第 9 行：原绝对时钟，隐藏
+        (r"$\dot{b}_a$ [m/s]", "bd_a drift"),
+    ]
+    
+    n_rows = dim_ml
+    fig, axes = plt.subplots(n_rows, 2, figsize=(12, 1.8 * n_rows), sharex=True)
+
+    # 简化后的子图绘制函数（只画单次误差实线 + 滤波器自己的阴影边界）
+    def _draw_sub(ax, t, error_1d, filter_sig_1d, color, label):
+        ax.plot(t, error_1d, color=color, lw=1.5, label=f"{label} error (Run {run_idx})", zorder=3)
+        ax.fill_between(t, -2 * filter_sig_1d, 2 * filter_sig_1d,
+                        color=color, alpha=0.18, label=r"±2$\sigma$ filter", zorder=2)
+        ax.axhline(0, color=_GRAY, lw=0.6, ls=":")
+
+    for row_idx in range(n_rows):
+        ax_ml, ax_ma = axes[row_idx, 0], axes[row_idx, 1]
+        
+        # 获取 Y 轴物理量标签
+        if row_idx < 10:
+            ylabel = _CORE_LABELS[row_idx][0]
+        else:
+            va_idx = (row_idx - 10) // 2 + 1
+            coord = "x" if row_idx % 2 == 0 else "y"
+            ylabel = rf"VA{va_idx} $\tilde{{{coord}}}$ [m]"
+
+        # --- 特殊行处理 ---
+        if row_idx == 4: # 第 5 行：展示相对时钟
+            e_c_ml, s_c_ml = _get_rel_clk_single(ml, run_idx)
+            e_c_ma, s_c_ma = _get_rel_clk_single(ma, run_idx)
+            _draw_sub(ax_ml, time, e_c_ml, s_c_ml, _BLUE, "Mapless")
+            _draw_sub(ax_ma, time, e_c_ma, s_c_ma, _ORANGE, "Map-aided")
+        elif row_idx == 8: # 隐藏 b_a
+            ax_ml.set_visible(False)
+            ax_ma.set_visible(False)
+            continue
+        else:
+            # 普通行绘制
+            _draw_sub(ax_ml, time, err_ml_single[:, row_idx], sig_ml_single[:, row_idx], _BLUE, "Mapless")
+            if row_idx < dim_ma:
+                _draw_sub(ax_ma, time, err_ma_single[:, row_idx], sig_ma_single[:, row_idx], _ORANGE, "Map-aided")
+
+        # 显式设置 Y 轴标签
+        ax_ml.set_ylabel(ylabel, fontsize=10)
+        ax_ma.set_ylabel(ylabel, fontsize=10)
+
+        # 设置标题和图例 (仅第一行)
+        if row_idx == 0:
+            ax_ml.set_title("Mapless EKF", fontsize=11)
+            ax_ma.set_title("Map-Aided EKF", fontsize=11)
+            ax_ml.legend(fontsize=7, loc="upper right")
+            ax_ma.legend(fontsize=7, loc="upper right")
+
+    # 显式设置 X 轴标签
+    for ax in axes[-1, :]:
+        ax.set_xlabel("Time [s]", fontsize=10)
+
+    fig.suptitle(f"Fig. 1 — Single Sample Path Error (Run {run_idx}) ± 2σ | Case {cfg.case_id} (N={cfg.N})", fontsize=13, y=1.0)
+    fig.tight_layout()
+    return fig
 # ---------------------------------------------------------------------------
 # Figure 4 — Average NEES vs Chi-squared bounds  (paper Fig. 4 style)
 # ---------------------------------------------------------------------------

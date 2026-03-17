@@ -25,7 +25,7 @@ import sys
 import textwrap
 import time as _time
 from pathlib import Path
-
+import scipy.io as sio
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,6 +38,7 @@ from src.utils.plotting import (
     figure_observability,
     figure_table1,
     figure_trajectory_2d,
+    figure1_single_run_error
 )
 
 # Use non-interactive backend unless --show is passed
@@ -301,6 +302,10 @@ def _generate_all_figures(
         "fig_table1", lambda: figure_table1(results),
         out_dir, show,
     )
+    _make_and_save(
+        "fig1_single_errors", lambda: figure1_single_run_error(results, run_idx=0),
+        out_dir, show,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +330,8 @@ def _run_case(args: argparse.Namespace, case_id: int) -> None:
         print(f"Saving outputs to: {out_dir}/")
         _save_summary_txt(cfg, results, out_dir)
         _save_npz(results, out_dir)
+        export_to_matlab(results, out_dir / "radio_slam_results.mat")
+
 
     _generate_all_figures(results, cfg, out_dir, args.show)
 
@@ -353,6 +360,64 @@ def main() -> None:
         if len(cases) > 1:
             print("─" * 68)
 
+# ---------------------------------------------------------------------------
+# Save matlab file
+# ---------------------------------------------------------------------------
 
+def export_to_matlab(results: dict, filepath):
+    """提取全部数据，支持 MATLAB 绘制所有的 4 张核心图像"""
+    import scipy.io as sio
+    import numpy as np
+
+    cfg = results["cfg"]
+    ml = results["mapless"]
+    ma = results["map_aided"]
+    sample = results["sample"]
+
+    # 提取虚拟锚点 (VAs) 的坐标用于 2D 轨迹图
+    mm = sample["mm"]
+    r_a = sample["r_a_true"]
+    r_vas = np.array(mm.virtual_anchor_positions(r_a)[:cfg.N])
+
+    mat_data = {
+        "time": results["time"],
+        "N": cfg.N,
+        "room_width": cfg.room_width,
+        "room_height": cfg.room_height,
+        "n_runs": cfg.n_runs,
+        
+        # --- Fig 1: 完整的 3D 误差矩阵与方差矩阵 (支持均值和单次运行) ---
+        "ml_errors": ml["errors"],              # (n_steps, n_runs, dim)
+        "ma_errors": ma["errors"],
+        "ml_cov_diags": ml["cov_diags"],        # 用于单次运行的自评 P 矩阵
+        "ma_cov_diags": ma["cov_diags"],
+        "ml_sigmas": ml["sigmas"],              # (n_steps, dim) 理论边界
+        "ma_sigmas": ma["sigmas"],
+        
+        # 相对时钟专用数据
+        "ml_rel_clk_var": ml["rel_clk_var"],    # (n_steps, n_runs)
+        "ma_rel_clk_var": ma["rel_clk_var"],
+        "ml_sigmas_rel": ml["sigmas_rel"],      # (n_steps,)
+        "ma_sigmas_rel": ma["sigmas_rel"],
+
+        # --- Fig 4: NEES 数据 (包含单次和均值) ---
+        "ml_nees": ml["nees"],                  # (n_steps, n_runs)
+        "ma_nees": ma["nees"],
+        "ml_avg_nees": ml["avg_nees"],
+        "ma_avg_nees": ma["avg_nees"],
+        "ml_r1": ml["r1"], "ml_r2": ml["r2"],
+        "ma_r1": ma["r1"], "ma_r2": ma["r2"],
+
+        # --- 2D Trajectory: 轨迹数据 (Run 0) ---
+        "x_true": sample["x_true"],
+        "x_hat_ml": sample["x_hat_ml"],
+        "x_hat_ma": sample["x_hat_ma"],
+        "r_a_true": r_a,
+        "r_vas": r_vas,
+    }
+    
+    sio.savemat(str(filepath), mat_data)
+    print(f"  → {filepath.name} (Full MATLAB data exported perfectly)")
+    
 if __name__ == "__main__":
     main()
