@@ -84,6 +84,7 @@ pip install -r requirements.txt
 Execute the main script by passing the target Case ID (1 through 4):
 python main.py --case 1  # Runs Mapless vs Map-assisted without priors
 python main.py --case 4  # Runs comparison with fully known position and time
+python main.py --case 4 --T 0.2 --steps 1000 --runs 30 --sigma 0.1 # Runs comparison with different configrations
 
 ## 6. References
 1. Z. M. Kassas and T. E. Humphreys, "Observability Analysis of Collaborative Opportunistic Navigation With Pseudorange Measurements," IEEE Trans. Intell. Transp. Syst., 2014.

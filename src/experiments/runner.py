@@ -52,16 +52,17 @@ from src.utils.stats import average_nees, chi2_bounds, compute_nees, rmse
 _C = 3e8   # speed of light [m/s]
 
 # Initial-uncertainty defaults (all in SI units consistent with metres-clock)
-_SIGMA_POS = 4    # m   — receiver/anchor position cold-start.
+_SIGMA_POS = 1    # m   — receiver/anchor position cold-start.
                     #       Reduced from 2 m: large σ causes the EKF to get
                     #       trapped in local minima when N=4 (5 measurements/step
                     #       collapse P faster than coupled receiver-anchor errors
                     #       can converge). 0.8 m is still a meaningful "no prior"
                     #       scenario (e.g., coarse floor-map knowledge ≈ 1 m).
 _SIGMA_VEL = 0.2    # m/s — receiver velocity cold-start
-_SIGMA_B   = 10   # m   — clock bias cold-start (range-equivalent, ≈ 40 ns)
-_SIGMA_BD  = 0.2    # m/s — clock drift cold-start
-_SIGMA_VA  = 5    # m   — VA position warm-start (mapless only)
+_SIGMA_B   = 3   # m   — clock bias cold-start (range-equivalent, ≈ 40 ns)
+_SIGMA_BD  = 0.05    # m/s — clock drift cold-start
+_SIGMA_VA  = 2    # m   — VA position warm-start (mapless only)
+
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +497,8 @@ def run_monte_carlo(cfg: ExperimentConfig) -> dict:
     x_true_sample:  np.ndarray | None = None
     x_hat_ml_sample = np.zeros((n_steps, dim_ml))
     x_hat_ma_sample = np.zeros((n_steps, dim_ma))
+    P_xy_ml_sample = np.zeros((n_steps, 2, 2))
+    P_xy_ma_sample = np.zeros((n_steps, 2, 2))
 
     # ---- Monte Carlo loop ----
     for run_idx in range(n_runs):
@@ -580,6 +583,8 @@ def run_monte_carlo(cfg: ExperimentConfig) -> dict:
             if run_idx == 0:
                 x_hat_ml_sample[k] = ekf_ml.x.copy()
                 x_hat_ma_sample[k] = ekf_ma.x.copy()
+                P_xy_ml_sample[k] = ekf_ml.P[0:2, 0:2].copy()
+                P_xy_ma_sample[k] = ekf_ma.P[0:2, 0:2].copy()
 
     # ---- Post-process ----
     time_axis = np.arange(0, n_steps + 1) * T
@@ -646,6 +651,8 @@ def run_monte_carlo(cfg: ExperimentConfig) -> dict:
             "x_true":   x_true_sample,
             "x_hat_ml": x_hat_ml_sample,
             "x_hat_ma": x_hat_ma_sample,
+            "P_xy_ml":  P_xy_ml_sample,
+            "P_xy_ma":  P_xy_ma_sample,
             "r_a_true": r_a_true,
             "mm":       mm,
         },

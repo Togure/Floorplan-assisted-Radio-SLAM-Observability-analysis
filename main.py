@@ -414,6 +414,8 @@ def export_to_matlab(results: dict, filepath):
         "x_hat_ma": sample["x_hat_ma"],
         "r_a_true": r_a,
         "r_vas": r_vas,
+        "P_xy_ml_sample": sample["P_xy_ml"],
+        "P_xy_ma_sample": sample["P_xy_ma"],
     }
     
     sio.savemat(str(filepath), mat_data)

@@ -44,14 +44,14 @@ class ExperimentConfig:
     N: int = 4   # one VA per wall (rectangular room has 4 walls)
     room_width: float = 40.0
     room_height: float = 15.0
-    q_x: float = 0.5          # m²/s³ — velocity random-walk (inflated for
-    q_y: float = 0.5          #          Lissajous/random-walk model mismatch)
+    q_x: float = 1          # m²/s³ — velocity random-walk (inflated for
+    q_y: float = 1        #          Lissajous/random-walk model mismatch)
     q_va: float = 0.01         # m²/step — small VA regularisation noise (mapless)
     h0_r: float = 1e-21       # TCXO-grade receiver oscillator
     h_2_r: float = 1e-23
     h0_a: float = 1e-23       # OCXO-grade anchor oscillator (more stable)
     h_2_a: float = 1e-25
-    sigma_range: float = 1.0  # m — range measurement noise std-dev
+    sigma_range: float = 1  # m — range measurement noise std-dev
     know_position: bool = False
     know_time: bool = False
 
